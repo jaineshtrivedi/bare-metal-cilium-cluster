@@ -1,0 +1,7 @@
+state/*
+!state/.gitkeep
+proof/*
+!proof/.gitkeep
+*.log
+*.tmp
+

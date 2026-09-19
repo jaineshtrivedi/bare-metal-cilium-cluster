@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: load-generator
+  namespace: infra-demo
+  labels:
+    role: allowed
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      command:
+        - sh
+        - -c
+        - |
+          while true; do
+            curl -fsS http://web >/dev/null
+            sleep 0.2
+          done
+
