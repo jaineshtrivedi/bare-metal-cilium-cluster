@@ -8,7 +8,7 @@ Build a production-minded Kubernetes cluster across five dedicated Ubuntu 24.04 
 
 I use three control-plane nodes and two worker nodes. Three control-plane nodes give etcd quorum and allow one control-plane host to fail while the API and etcd remain available. Two worker nodes provide basic application capacity and make it easy to demonstrate pod spreading and node failure behavior.
 
-The bootstrap tool is kubeadm. I chose kubeadm because it is explicit, widely understood, close to upstream Kubernetes, and easy to explain in an interview. Talos and Kubespray are good options, but kubeadm keeps the moving parts visible and makes the operational tradeoffs clear.
+The bootstrap tool is kubeadm. I chose kubeadm because it is explicit, widely understood, close to upstream Kubernetes, and straightforward to operate. Talos and Kubespray are good options, but kubeadm keeps the moving parts visible and makes the operational tradeoffs clear.
 
 ## Control Plane Access
 
@@ -63,7 +63,7 @@ Node failure handling is intentionally plain:
 ## Tradeoffs and Limitations
 
 - L2 announcement requires the nodes and clients to share the relevant L2 network. If the environment is routed-only, I would switch Service exposure to BGP using Cilium BGP Control Plane.
-- The assignment does not require persistent storage, so the demo stays stateless. For production workloads I would add a storage layer such as Rook Ceph, Longhorn, or an existing SAN/NFS CSI driver.
+- The current scope does not include persistent storage, so the demo stays stateless. For production workloads I would add a storage layer such as Rook Ceph, Longhorn, or an existing SAN/NFS CSI driver.
 - There is no cluster autoscaling because the hosts are fixed bare-metal machines.
 - The scripts optimize for clarity and reproducibility over a full configuration-management system. For a larger fleet, I would convert the same steps to Ansible or Cluster API.
 - Secrets are not committed. Join tokens and kubeconfigs are generated into `state/`, which is ignored by Git.

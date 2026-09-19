@@ -1,6 +1,6 @@
 # Proof Template
 
-Use this file as the short evidence section in the final submission. Paste command output or attach screenshots for each item.
+Use this file as a concise deployment evidence record. Paste command output or attach screenshots for each item.
 
 ## Cluster Nodes
 
@@ -66,4 +66,3 @@ kubectl uncordon <worker>
 ```
 
 Expected: Deployment pods reschedule to healthy nodes and recover.
-

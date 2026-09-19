@@ -1,6 +1,6 @@
 # Bare-Metal Kubernetes Cluster with Cilium
 
-This repository builds a five-node Kubernetes cluster on Ubuntu 24.04 bare-metal hosts using kubeadm and Cilium. It is designed for an interview assignment: the setup is reproducible, avoids managed Kubernetes and cloud load balancers, and includes validation/proof commands.
+This repository builds a reproducible five-node Kubernetes cluster on Ubuntu 24.04 bare-metal hosts using kubeadm and Cilium. It avoids managed Kubernetes and cloud load balancers and includes comprehensive validation commands.
 
 ## Architecture
 
@@ -170,7 +170,7 @@ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list
 
 - Nodes share a flat L2 network, so ARP/NDP-based VIP and Service announcement are appropriate.
 - The selected control-plane VIP and LoadBalancer pool are outside DHCP allocation and not used elsewhere.
-- Node disks and hardware are already provisioned by the interview environment.
+- Node disks and hardware are already provisioned.
 - No external persistent storage class is configured because the demo app is stateless.
 
 ## Repository Layout
