@@ -1,7 +1,7 @@
 state/*
 !state/.gitkeep
+inventory.env
 proof/*
 !proof/.gitkeep
 *.log
 *.tmp
-

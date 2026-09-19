@@ -1,150 +1,72 @@
 # Bare-Metal Kubernetes Cluster with Cilium
 
-This repository builds a reproducible five-node Kubernetes cluster on Ubuntu 24.04 bare-metal hosts using kubeadm and Cilium. It avoids managed Kubernetes and cloud load balancers and includes comprehensive validation commands.
+This repository deploys a reproducible five-node Kubernetes cluster on Ubuntu 24.04 bare-metal hosts. Kubespray manages the host and Kubernetes lifecycle; Cilium provides networking, policy enforcement, observability, kube-proxy replacement, and LAN-facing `LoadBalancer` Services.
 
 ## Architecture
 
-- 5 hosts on one L2 network.
-- 3 control-plane nodes for API and etcd quorum.
-- 2 worker nodes for application capacity.
-- kube-vip provides a highly available Kubernetes API virtual IP.
-- Cilium is the CNI, runs kube-proxy replacement, enforces NetworkPolicy, and advertises Service `LoadBalancer` IPs on the LAN through L2 announcements.
-- Demo app is exposed with a Kubernetes `LoadBalancer` Service backed by Cilium LB IPAM, not a cloud load balancer.
+- Three control-plane nodes run a stacked etcd cluster and tolerate one control-plane failure.
+- Two worker nodes provide application capacity.
+- Kubespray `v2.31.0` supplies idempotent Ansible roles for host preparation, containerd, Kubernetes `1.35.4`, certificates, joins, upgrades, and node lifecycle.
+- kube-vip advertises one highly available Kubernetes API virtual IP with ARP.
+- Cilium replaces kube-proxy, supplies Kubernetes IPAM, enforces policies, and runs Hubble.
+- Cilium LoadBalancer IPAM allocates LAN addresses; L2 announcements advertise selected Services without a cloud load balancer.
 
-Traffic flow for the demo app:
+External request path:
 
-1. A client connects to the assigned `LoadBalancer` IP from the LAN.
-2. Cilium elects a node to answer ARP for that IP.
-3. The elected node receives the packet and Cilium service load balancing forwards it to a ready backend pod.
-4. Cilium forwards the request to a ready backend pod on any node.
+```text
+LAN client -> Service LoadBalancer IP -> elected Cilium announcer
+           -> Cilium eBPF service load balancing -> ready pod on any node
+```
 
 ## Prerequisites
 
-- Root SSH access to all five Ubuntu 24.04 hosts.
-- The five hosts are on the same L2 network.
-- One unused IP for the control-plane VIP.
-- A small unused IP range for Service `LoadBalancer` addresses.
-- Internet access from the nodes to fetch Ubuntu packages and container images.
-- From your workstation: `bash`, `ssh`, `scp`, and `make`.
+- Five clean Ubuntu 24.04 hosts on the same L2 network.
+- Root SSH access, or an SSH user with passwordless sudo, and Python 3 on every host.
+- One unused LAN address for the Kubernetes API VIP.
+- An unused LAN range for Service `LoadBalancer` addresses.
+- Internet access from the workstation and nodes.
+- Workstation tools: `bash`, `git`, `make`, Python 3.11 or newer (or `uv`), `ssh`, `curl`, and `kubectl`.
 
-## Quick Start
-
-Copy and edit the inventory:
+## Configure
 
 ```bash
 cp inventory.sample.env inventory.env
 $EDITOR inventory.env
 ```
 
-Then run the build:
+Set the five node addresses, API VIP, LAN interface, and LoadBalancer range. The interface used by kube-vip must exist on every control-plane node. Keep all selected VIPs outside DHCP allocation.
+
+## Deploy
+
+Run each stage independently for clearer failure recovery:
 
 ```bash
-make prepare
-make init
-make join
+make setup
+make inventory
+make cluster
 make cilium
 make demo
 make validate
 make proof
 ```
 
-The scripts write temporary cluster join material and the kubeconfig to `state/`. Command evidence is written under `proof/`.
-
-## Step-by-Step Details
-
-### 1. Prepare Hosts
+Or run the complete deployment:
 
 ```bash
-make prepare
+make deploy
 ```
 
-This runs on every host:
+The stages are:
 
-- disables swap
-- loads required kernel modules
-- enables bridge netfilter and IPv4 forwarding
-- installs containerd
-- configures containerd with systemd cgroups
-- installs kubeadm, kubelet, and kubectl from the configured Kubernetes minor train
+1. `setup` clones the pinned Kubespray release into ignored local state and creates its Python virtual environment.
+2. `inventory` generates Kubespray inventory and cluster variables from `inventory.env`.
+3. `cluster` runs Kubespray's `cluster.yml`, including host preparation, containerd, kube-vip, Kubernetes, Cilium, and Hubble.
+4. `cilium` applies the environment-specific LoadBalancer address pool and L2 announcement policy.
+5. `demo` applies the sample application and two network policies.
+6. `validate` checks node/Cilium health, external reachability, and allowed/denied policy paths.
+7. `proof` captures timestamped evidence under `proof/`.
 
-### 2. Initialize the First Control Plane
-
-```bash
-make init
-```
-
-This creates the kube-vip static pod manifest, runs `kubeadm init`, skips kube-proxy, and stores:
-
-- `state/admin.conf`
-- `state/join-worker.sh`
-- `state/certificate-key`
-
-### 3. Join the Remaining Nodes
-
-```bash
-make join
-```
-
-This joins the remaining two control-plane nodes with the uploaded cert key, then joins the two worker nodes.
-
-### 4. Install Cilium
-
-```bash
-make cilium
-```
-
-Cilium is installed with Helm using:
-
-- kube-proxy replacement
-- Kubernetes IPAM
-- Hubble relay and UI
-- L2 announcements
-- Cilium LoadBalancer IPAM
-
-The LoadBalancer pool and L2 policy are applied from `manifests/cilium/`.
-
-### 5. Deploy Demo App and Policies
-
-```bash
-make demo
-```
-
-This deploys:
-
-- namespace `infra-demo`
-- 3-replica nginx Deployment
-- `LoadBalancer` Service labeled for Cilium L2 exposure
-- two NetworkPolicies:
-  - `default-deny-ingress`
-  - `allow-web-from-approved-clients`
-
-### 6. Validate
-
-```bash
-make validate
-```
-
-Validation checks:
-
-- all nodes are `Ready`
-- Cilium daemonset and operator are healthy
-- app pods are scheduled across nodes
-- app Service has an external IP
-- the app is reachable through the external IP
-- an allowed client pod can reach the app
-- a blocked client pod cannot reach the app
-
-### 7. Capture Proof
-
-```bash
-make proof
-```
-
-This writes a timestamped text file under `proof/` containing node status, Cilium status, demo app status, service details, policies, and the validation output.
-
-## Common Commands
-
-Use the kubeconfig produced by the bootstrap:
+Kubespray exports the admin kubeconfig to `state/admin.conf`:
 
 ```bash
 export KUBECONFIG="$PWD/state/admin.conf"
@@ -153,32 +75,52 @@ kubectl -n kube-system get pods -l k8s-app=cilium -o wide
 kubectl -n infra-demo get svc web -o wide
 ```
 
-Run Cilium connectivity tests after the cluster is stable:
+## Idempotency and Recovery
+
+If a run stops because of a transient package, registry, or SSH failure, correct the cause and rerun:
 
 ```bash
-cilium connectivity test
+make cluster
 ```
 
-If the Cilium CLI is not installed locally, inspect from a Cilium pod:
+Kubespray converges managed state instead of replaying hand-written bootstrap mutations. Use Ansible options when narrowing a retry:
 
 ```bash
-kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium status --verbose
-kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list
+./scripts/02_deploy_cluster.sh --limit cp2
 ```
+
+Regenerate inventory after changing node membership or cluster variables:
+
+```bash
+make inventory
+make cluster
+```
+
+Operational procedures for scaling, upgrades, failure tests, and diagnostics are in [docs/operations.md](docs/operations.md).
+
+## Demo and Policies
+
+The `infra-demo` namespace contains a three-replica nginx Deployment and a Cilium-backed `LoadBalancer` Service. Its policies are:
+
+- `default-deny-ingress`: denies ingress to every pod in the namespace.
+- `allow-web-from-approved-clients`: allows pods labeled `role=allowed` to reach TCP/80 on the web pods.
+
+The validation script recreates one allowed client and one blocked client on every run. It requires the allowed request to succeed and the blocked request to fail.
 
 ## Assumptions
 
-- Nodes share a flat L2 network, so ARP/NDP-based VIP and Service announcement are appropriate.
-- The selected control-plane VIP and LoadBalancer pool are outside DHCP allocation and not used elsewhere.
-- Node disks and hardware are already provisioned.
-- No external persistent storage class is configured because the demo app is stateless.
+- Nodes and clients share the relevant L2 network, making ARP-based API and Service advertisement appropriate.
+- The same LAN interface name is available on all control-plane nodes. Cilium can use a separate interface regular expression.
+- Pod and Service CIDRs do not overlap the LAN, VPN, or other routed networks.
+- Host disks and firmware are already provisioned.
+- The demo is stateless; no persistent storage provider is installed.
 
 ## Repository Layout
 
 ```text
 .
 ├── DESIGN.md
-├── README.md
+├── Makefile
 ├── docs/
 │   ├── operations.md
 │   └── proof-template.md
@@ -188,4 +130,11 @@ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list
 │   ├── demo/
 │   └── ops/
 └── scripts/
+    ├── 00_setup_kubespray.sh
+    ├── 01_generate_inventory.sh
+    ├── 02_deploy_cluster.sh
+    ├── 03_configure_cilium.sh
+    ├── 04_deploy_demo.sh
+    ├── 05_validate.sh
+    └── 06_capture_proof.sh
 ```

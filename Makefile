@@ -1,18 +1,18 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: prepare init join cilium demo validate proof clean-proof
+.PHONY: setup inventory cluster cilium demo deploy validate proof upgrade reset clean-proof
 
-prepare:
-	./scripts/00_prepare_hosts.sh
+setup:
+	./scripts/00_setup_kubespray.sh
 
-init:
-	./scripts/01_bootstrap_first_control_plane.sh
+inventory:
+	./scripts/01_generate_inventory.sh
 
-join:
-	./scripts/02_join_remaining_nodes.sh
+cluster:
+	./scripts/02_deploy_cluster.sh
 
 cilium:
-	./scripts/03_install_cilium.sh
+	./scripts/03_configure_cilium.sh
 
 demo:
 	./scripts/04_deploy_demo.sh
@@ -23,6 +23,13 @@ validate:
 proof:
 	./scripts/06_capture_proof.sh
 
+deploy: setup inventory cluster cilium demo validate
+
+upgrade:
+	cd state/kubespray && ../venv/bin/ansible-playbook -i ../inventory/inventory.ini upgrade-cluster.yml --become
+
+reset:
+	cd state/kubespray && ../venv/bin/ansible-playbook -i ../inventory/inventory.ini reset.yml --become
+
 clean-proof:
 	rm -f proof/*.txt proof/*.log
-

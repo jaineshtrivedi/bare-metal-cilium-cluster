@@ -16,6 +16,8 @@ source "$INVENTORY"
 CP1="${CP_NODES[0]}"
 ALL_NODES=("${CP_NODES[@]}" "${WORKER_NODES[@]}")
 
+KUBECONFIG_FILE="$ROOT_DIR/state/admin.conf"
+
 ssh_node() {
   local node="$1"
   shift
@@ -29,8 +31,12 @@ scp_to_node() {
   scp ${SSH_OPTS:-} "$src" "${SSH_USER}@${node}:$dst"
 }
 
-kubectl_cp1() {
-  ssh_node "$CP1" "KUBECONFIG=/etc/kubernetes/admin.conf kubectl $*"
+kubectl_local() {
+  if [[ ! -f "$KUBECONFIG_FILE" ]]; then
+    echo "Missing kubeconfig: $KUBECONFIG_FILE. Run make cluster first."
+    return 1
+  fi
+  KUBECONFIG="$KUBECONFIG_FILE" kubectl "$@"
 }
 
 run_on_all_nodes() {
@@ -40,13 +46,3 @@ run_on_all_nodes() {
     ssh_node "$node" "$cmd"
   done
 }
-
-node_interface_for() {
-  local node="$1"
-  if [[ "${NODE_INTERFACE}" != "auto" ]]; then
-    printf "%s" "$NODE_INTERFACE"
-  else
-    ssh_node "$node" "ip route show default | awk '{print \$5; exit}'"
-  fi
-}
-

@@ -1,80 +1,57 @@
 # Design Note
 
-## Goal
+## Goal and Cluster Shape
 
-Build a production-minded Kubernetes cluster across five dedicated Ubuntu 24.04 hosts using Cilium as the CNI. The solution must be reproducible and must expose an application externally without managed Kubernetes or a cloud load balancer.
+The system is a production-minded Kubernetes cluster across five dedicated Ubuntu 24.04 hosts. Three hosts run both the control plane and stacked etcd, preserving quorum through one control-plane failure. Two workers provide application capacity and allow scheduling and node-loss behavior to be demonstrated independently.
 
-## Cluster Shape
+## Lifecycle Tooling
 
-I use three control-plane nodes and two worker nodes. Three control-plane nodes give etcd quorum and allow one control-plane host to fail while the API and etcd remain available. Two worker nodes provide basic application capacity and make it easy to demonstrate pod spreading and node failure behavior.
+Kubespray is the cluster lifecycle layer. It uses established, idempotent Ansible roles around kubeadm to prepare hosts, configure containerd and kernel settings, initialize Kubernetes, join nodes, install the CNI, renew certificates, scale membership, and perform ordered upgrades.
 
-The bootstrap tool is kubeadm. I chose kubeadm because it is explicit, widely understood, close to upstream Kubernetes, and straightforward to operate. Talos and Kubespray are good options, but kubeadm keeps the moving parts visible and makes the operational tradeoffs clear.
+This is safer than maintaining those operations as independent shell mutations. A failed run can be corrected and converged again, desired state lives in a structured inventory, and routine operations use upstream playbooks. Kubespray is pinned to `v2.31.0`, while Kubernetes is pinned to `1.35.4`; version changes are deliberate repository edits rather than implicit downloads.
 
-## Control Plane Access
+The tradeoff is additional dependency weight and abstraction. Troubleshooting requires familiarity with Ansible and Kubespray roles, and the deployment inherits Kubespray's supported version matrix. Pinning the release and keeping environment-specific configuration small makes that dependency explicit and reviewable.
 
-kube-vip provides a virtual IP for the Kubernetes API server. Each control-plane node runs kube-vip as a static pod, and kube-vip uses leader election with ARP to advertise the API VIP from one healthy control-plane node at a time. This avoids an external hardware or cloud load balancer while still giving clients one stable API endpoint.
+## Highly Available API
 
-The control-plane endpoint is:
+Kubespray deploys kube-vip as a static pod on each control-plane node. The instances use leader election and ARP to advertise one API VIP. If the leader fails, another control-plane node takes over the address. Kubespray configures the API endpoint and certificate SAN consistently, avoiding a manually timed bootstrap sequence.
 
 ```text
-CONTROL_PLANE_VIP:6443
+operator/kubelet -> CONTROL_PLANE_VIP:6443 -> active kube-vip node -> kube-apiserver
 ```
 
 ## Networking
 
-Cilium is installed with kube-proxy replacement enabled. Kubernetes Service translation is handled by Cilium eBPF rather than iptables kube-proxy rules. IPAM uses Kubernetes PodCIDR allocation, which keeps the kubeadm setup simple.
+Cilium is the primary CNI and replaces kube-proxy. Service translation therefore happens in Cilium eBPF rather than kube-proxy's iptables or IPVS rules. Kubernetes IPAM allocates node PodCIDRs, and Hubble supplies flow visibility.
 
-Cilium also handles bare-metal Service exposure:
+Kubespray installs and owns the Cilium Helm release. This repository adds only the site-specific resources that Kubespray cannot infer:
 
-- `CiliumLoadBalancerIPPool` defines a pool of unused LAN IPs.
-- `CiliumL2AnnouncementPolicy` announces selected Service `LoadBalancer` IPs through L2.
-- Services opt in by using the label `expose: l2`.
-
-This means external traffic reaches the app without a cloud load balancer:
+- `CiliumLoadBalancerIPPool` defines unused LAN addresses.
+- `CiliumL2AnnouncementPolicy` advertises selected Service addresses.
+- Services opt in through the label `expose: l2`.
 
 ```text
-client -> LoadBalancer IP on LAN -> node currently announcing the IP -> Cilium service LB -> backend pod
+client -> LAN LoadBalancer IP -> elected Cilium announcer
+       -> Cilium service load balancer -> ready backend pod
 ```
 
-## Network Policy
+The demo Service uses `externalTrafficPolicy: Cluster`, allowing the announcing node to choose a ready backend on any node. This avoids coupling L2 leader election to local pod placement.
 
-The demo namespace includes two NetworkPolicies:
+## Policy Model
 
-1. `default-deny-ingress` denies ingress to all pods in the namespace.
-2. `allow-web-from-approved-clients` allows pods labeled `role=allowed` to reach the web app on TCP/80.
+The demo namespace includes a default-deny ingress policy and a narrow allow policy for clients carrying `role=allowed` to contact web pods on TCP/80. Validation creates both allowed and blocked clients and treats unexpected access or denial as a failed run.
 
-The validation script creates one allowed client and one blocked client. The allowed client must succeed; the blocked client must time out.
+## Operations and Failure Behavior
 
-## Application Exposure
+Node additions are inventory changes followed by Kubespray's `scale.yml`; node removals use `remove-node.yml` and explicit confirmation. Cluster upgrades use `upgrade-cluster.yml`, which handles control-plane and worker ordering. Re-running `cluster.yml` detects and corrects managed drift.
 
-The application is a three-replica nginx Deployment exposed by a Kubernetes `LoadBalancer` Service. The Service uses `externalTrafficPolicy: Cluster` so the node currently announcing the L2 address can forward traffic to any ready backend pod. A topology spread constraint encourages replicas across hosts so node loss is easier to demonstrate.
+On worker failure, Kubernetes marks the node unavailable and Deployment replicas are rescheduled onto healthy capacity. One failed control-plane node leaves etcd with quorum. kube-vip moves the API address after control-plane leader failure, while Cilium re-elects an announcer when the node holding a Service address disappears.
 
-## Operations
+## Limitations
 
-Adding a node is done by preparing the host and running the kubeadm join command generated by the first control-plane node. Control-plane joins additionally use the uploaded certificate key.
-
-Node failure handling is intentionally plain:
-
-- A failed worker stops serving local pods; Deployments recreate replicas elsewhere.
-- A failed control-plane node reduces etcd quorum capacity but the cluster remains healthy as long as two of three control-plane nodes remain available.
-- If the kube-vip leader fails, another control-plane node takes over the API VIP.
-- If the node announcing a Service LoadBalancer IP fails, Cilium elects another node to announce it.
-
-## Tradeoffs and Limitations
-
-- L2 announcement requires the nodes and clients to share the relevant L2 network. If the environment is routed-only, I would switch Service exposure to BGP using Cilium BGP Control Plane.
-- The current scope does not include persistent storage, so the demo stays stateless. For production workloads I would add a storage layer such as Rook Ceph, Longhorn, or an existing SAN/NFS CSI driver.
-- There is no cluster autoscaling because the hosts are fixed bare-metal machines.
-- The scripts optimize for clarity and reproducibility over a full configuration-management system. For a larger fleet, I would convert the same steps to Ansible or Cluster API.
-- Secrets are not committed. Join tokens and kubeconfigs are generated into `state/`, which is ignored by Git.
-
-## Upgrade Approach
-
-For Kubernetes, upgrade one minor version at a time:
-
-1. Upgrade kubeadm on the first control-plane node.
-2. Run `kubeadm upgrade plan` and `kubeadm upgrade apply`.
-3. Upgrade kubelet/kubectl on each control-plane node.
-4. Drain and upgrade worker nodes one by one.
-
-For Cilium, run the documented Cilium preflight checks, then upgrade through Helm and wait for the daemonset/operator rollout.
+- L2 announcements require clients and nodes to share a broadcast domain. Routed environments should use Cilium BGP Control Plane instead.
+- The two-worker layout has limited spare capacity; disruption budgets and resource requests must be sized with one-node loss in mind.
+- Kubespray state is configuration, not a replacement for etcd and application-data backups.
+- No persistent storage, ingress controller, external DNS, identity provider, or secrets manager is included.
+- A single interface name is assumed for kube-vip. Heterogeneous hosts need host-specific inventory variables.
+- The admin kubeconfig and generated Kubespray inventory are sensitive local state and remain ignored by Git.
