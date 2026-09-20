@@ -123,6 +123,11 @@ The generated inventory sets `kube_owner: root`, as required by Kubespray's unpr
 
 Operational procedures for scaling, upgrades, failure tests, and diagnostics are in [docs/operations.md](docs/operations.md).
 
+## Evidence
+
+- [Cluster validation](proof/cluster-validation.md) records node readiness, Cilium health, encryption, workload distribution, external access, and policy enforcement.
+- [Operations evidence](proof/operations.md) records load generation, worker drain and recovery, networking diagnostics, and the node-add workflow.
+
 ## Demo Policies
 
 The `infra-demo` namespace contains a three-replica nginx Deployment and a fixed `NodePort` Service. Its policies are:

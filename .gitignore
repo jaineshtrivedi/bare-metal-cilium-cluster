@@ -3,5 +3,6 @@ state/*
 inventory.env
 proof/*
 !proof/.gitkeep
+!proof/*.md
 *.log
 *.tmp
