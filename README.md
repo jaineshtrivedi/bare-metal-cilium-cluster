@@ -9,12 +9,12 @@ This repository deploys a reproducible five-node Kubernetes cluster on Ubuntu 24
 - Kubespray `v2.31.0` provides idempotent host preparation, containerd, Kubernetes `1.35.4`, certificates, joins, upgrades, and node lifecycle.
 - Kubespray runs a local nginx API proxy on each node, so kubelets and cluster components retain access when one API server fails.
 - Cilium replaces kube-proxy and encrypts inter-node pod traffic with kernel WireGuard.
-- The demo is exposed on TCP `30080` on every node through a Cilium-managed `NodePort` Service.
+- The demo is exposed on the configured NodePort (default TCP `30080`) on every node through Cilium.
 
 External request path:
 
 ```text
-Internet client -> any healthy node public IP:30080
+Internet client -> any healthy node address:NODE_PORT
                 -> Cilium eBPF service load balancing
                 -> ready web pod on either worker
 ```
@@ -25,15 +25,8 @@ Internet client -> any healthy node public IP:30080
 - Root SSH access, or an SSH user with passwordless sudo, and Python 3 on every host.
 - Internet access from the workstation and nodes.
 - Workstation tools: `bash`, `git`, `make`, Python 3.11 or newer (or `uv`), `ssh`, `curl`, and `kubectl`.
-- An unlocked SSH key in `ssh-agent` when the key is passphrase-protected.
+- Working key-based SSH access from the deployment workstation to every node.
 - Inter-node firewall access for the ports listed below.
-
-Unlock a protected key once per shell session:
-
-```bash
-eval "$(ssh-agent -s)"
-ssh-add ~/.ssh/jainesht
-```
 
 ## Configure
 
@@ -42,15 +35,7 @@ cp inventory.sample.env inventory.env
 $EDITOR inventory.env
 ```
 
-Set the three control-plane and two worker public addresses. The local `inventory.env` is ignored by Git.
-
-For the current five hosts:
-
-```bash
-CP_NODES=("65.109.78.121" "65.109.49.142" "65.108.7.94")
-WORKER_NODES=("65.108.65.56" "65.109.28.75")
-NODE_PORT="30080"
-```
+Set the three control-plane addresses, two worker addresses, SSH user, optional private-key path, and desired NodePort. The local `inventory.env` is ignored by Git. Use `inventory.sample.env` as the authoritative configuration example.
 
 ## Required Network Access
 
@@ -109,7 +94,8 @@ export KUBECONFIG="$PWD/state/admin.conf"
 kubectl get nodes -o wide
 kubectl -n kube-system get pods -l k8s-app=cilium -o wide
 kubectl -n infra-demo get pods,svc -o wide
-curl http://65.109.78.121:30080
+source inventory.env
+curl "http://${WORKER_NODES[0]}:${NODE_PORT}"
 ```
 
 ## Idempotency and Recovery

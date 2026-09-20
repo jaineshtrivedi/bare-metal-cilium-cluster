@@ -89,10 +89,10 @@ For an unplanned test, power off one worker. The node should become `NotReady`, 
 
 Stop kubelet on one control-plane host or power it off. The remaining two etcd members retain quorum, and node-local API proxies continue using healthy API servers.
 
-If the failed host is the endpoint in `state/admin.conf`, temporarily replace its address:
+If the failed host is the endpoint in `state/admin.conf`, edit the kubeconfig and replace its `server` address with another healthy control-plane address:
 
 ```bash
-sed -i.bak 's/65.109.78.121/65.109.49.142/' state/admin.conf
+$EDITOR state/admin.conf
 kubectl get nodes
 ```
 
@@ -112,8 +112,9 @@ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list
 Test every external path:
 
 ```bash
-for ip in 65.109.78.121 65.109.49.142 65.108.7.94 65.108.65.56 65.109.28.75; do
-  curl --fail --max-time 10 "http://${ip}:30080"
+source inventory.env
+for ip in "${CP_NODES[@]}" "${WORKER_NODES[@]}"; do
+  curl --fail --max-time 10 "http://${ip}:${NODE_PORT}"
 done
 ```
 

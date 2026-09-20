@@ -24,10 +24,10 @@ Control-plane, etcd, and kubelet connections are already authenticated and encry
 
 ## External Exposure
 
-The application is exposed through a fixed NodePort, TCP `30080`, available on every healthy node address:
+The application is exposed through a configurable NodePort (TCP `30080` by default), available on every healthy node address:
 
 ```text
-client -> node public IP:30080 -> Cilium eBPF service load balancer -> ready pod
+client -> node public address:NODE_PORT -> Cilium eBPF service load balancer -> ready pod
 ```
 
 `externalTrafficPolicy: Cluster` allows any node to forward to a ready pod on either worker. This offers several usable external endpoints without a cloud load balancer. It does not provide one automatically failing-over IP; clients can use another node address after failure, or DNS can publish several A records.

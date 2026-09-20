@@ -40,12 +40,13 @@ Command:
 
 ```bash
 kubectl -n infra-demo get svc web -o wide
-for ip in 65.109.78.121 65.109.49.142 65.108.7.94 65.108.65.56 65.109.28.75; do
-  curl --fail --max-time 10 "http://${ip}:30080"
+source inventory.env
+for ip in "${CP_NODES[@]}" "${WORKER_NODES[@]}"; do
+  curl --fail --max-time 10 "http://${ip}:${NODE_PORT}"
 done
 ```
 
-Expected: Service is `NodePort` on TCP `30080`, and every healthy node address returns the nginx page.
+Expected: Service uses the configured NodePort, and every healthy node address returns the nginx page.
 
 ## Network Policies Enforced
 
