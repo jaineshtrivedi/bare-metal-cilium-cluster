@@ -24,7 +24,10 @@ spec:
         - podSelector:
             matchLabels:
               role: allowed
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - __POD_CIDR__
       ports:
         - protocol: TCP
           port: 80
-

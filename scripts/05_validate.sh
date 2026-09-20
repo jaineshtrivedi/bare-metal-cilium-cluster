@@ -11,16 +11,14 @@ kubectl_local -n kube-system exec ds/cilium -c cilium-agent -- cilium status --v
 echo "==> Pods spread across nodes"
 kubectl_local -n infra-demo get pods -o wide
 
-echo "==> Service external address"
+echo "==> NodePort service"
 kubectl_local -n infra-demo get svc web -o wide
-LB_IP="$(kubectl_local -n infra-demo get svc web -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
-if [[ -z "$LB_IP" ]]; then
-  echo "LoadBalancer IP is not assigned yet."
-  exit 1
-fi
 
-echo "==> External reachability from ${CP1}: http://${LB_IP}"
-curl -fsS --max-time 5 "http://${LB_IP}"
+echo "==> External reachability through every node on port ${NODE_PORT}"
+for node in "${ALL_NODES[@]}"; do
+  echo "Checking http://${node}:${NODE_PORT}"
+  curl -fsS --max-time 10 "http://${node}:${NODE_PORT}" >/dev/null
+done
 
 echo "==> Network policy: allowed client should reach web"
 kubectl_local -n infra-demo delete pod allowed-client --ignore-not-found

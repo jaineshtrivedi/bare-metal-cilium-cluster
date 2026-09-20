@@ -74,33 +74,26 @@ kube_pods_subnet: "${POD_CIDR}"
 kube_service_addresses: "${SERVICE_CIDR}"
 cluster_name: "${CLUSTER_NAME}"
 dns_domain: "${CLUSTER_DNS_DOMAIN}"
+kube_override_hostname: "{{ inventory_hostname }}"
 container_manager: containerd
 kubeconfig_localhost: true
+kubeconfig_localhost_ansible_host: true
 kubectl_localhost: true
+loadbalancer_apiserver_localhost: true
+loadbalancer_apiserver_type: nginx
 EOF
 
 cat >"$KUBESPRAY_INVENTORY/group_vars/k8s_cluster/zz-cilium.yml" <<'EOF'
 ---
 cilium_kube_proxy_replacement: true
 cilium_ipam_mode: kubernetes
-cilium_l2announcements: true
+cilium_l2announcements: false
+cilium_encryption_enabled: true
+cilium_encryption_type: wireguard
 cilium_enable_hubble: true
 cilium_enable_hubble_ui: true
 cilium_hubble_install: true
 cilium_hubble_tls_generate: true
-EOF
-
-cat >"$KUBESPRAY_INVENTORY/group_vars/k8s_cluster/zz-addons.yml" <<EOF
----
-kube_vip_enabled: true
-kube_vip_arp_enabled: true
-kube_vip_controlplane_enabled: true
-kube_vip_services_enabled: false
-kube_vip_address: "${CONTROL_PLANE_VIP}"
-loadbalancer_apiserver:
-  address: "${CONTROL_PLANE_VIP}"
-  port: 6443
-kube_vip_interface: "${NODE_INTERFACE}"
 EOF
 
 echo "Generated Kubespray inventory at state/inventory."

@@ -1,57 +1,53 @@
 # Design Note
 
-## Goal and Cluster Shape
+## Goal and Constraints
 
-The system is a production-minded Kubernetes cluster across five dedicated Ubuntu 24.04 hosts. Three hosts run both the control plane and stacked etcd, preserving quorum through one control-plane failure. Two workers provide application capacity and allow scheduling and node-loss behavior to be demonstrated independently.
+The cluster spans five Ubuntu 24.04 hosts that are accessible through routed public `/32` addresses. There is no provider-managed private network, shared broadcast domain, floating address, or cloud load balancer available. The design therefore avoids features that require Layer-2 adjacency and uses only capabilities deployable through root SSH.
+
+Three hosts run the control plane and stacked etcd, preserving quorum through one control-plane failure. Two workers provide application capacity and demonstrate scheduling and node-loss behavior.
 
 ## Lifecycle Tooling
 
-Kubespray is the cluster lifecycle layer. It uses established, idempotent Ansible roles around kubeadm to prepare hosts, configure containerd and kernel settings, initialize Kubernetes, join nodes, install the CNI, renew certificates, scale membership, and perform ordered upgrades.
+Kubespray is the lifecycle layer. Its idempotent Ansible roles prepare hosts, configure containerd, initialize Kubernetes, join nodes, install Cilium, renew certificates, scale membership, and perform ordered upgrades. Kubespray is pinned to `v2.31.0`, and Kubernetes is pinned to `1.35.4`, making version changes deliberate and reviewable.
 
-This is safer than maintaining those operations as independent shell mutations. A failed run can be corrected and converged again, desired state lives in a structured inventory, and routine operations use upstream playbooks. Kubespray is pinned to `v2.31.0`, while Kubernetes is pinned to `1.35.4`; version changes are deliberate repository edits rather than implicit downloads.
+## API Availability
 
-The tradeoff is additional dependency weight and abstraction. Troubleshooting requires familiarity with Ansible and Kubespray roles, and the deployment inherits Kubespray's supported version matrix. Pinning the release and keeping environment-specific configuration small makes that dependency explicit and reviewable.
+Without a portable floating address, the design uses Kubespray's local nginx API proxy. Every worker talks to a local proxy that balances across the three API servers, so one failed control plane does not disconnect kubelets or Cilium agents. Control-plane components use their local API endpoint.
 
-## Highly Available API
+The exported administrator kubeconfig targets the first control-plane public address. This is operationally simple but not a floating administrative endpoint. During failure, an administrator can change the kubeconfig server to either remaining control-plane address.
 
-Kubespray deploys kube-vip as a static pod on each control-plane node. The instances use leader election and ARP to advertise one API VIP. If the leader fails, another control-plane node takes over the address. Kubespray configures the API endpoint and certificate SAN consistently, avoiding a manually timed bootstrap sequence.
+## Networking and Encryption
 
-```text
-operator/kubelet -> CONTROL_PLANE_VIP:6443 -> active kube-vip node -> kube-apiserver
-```
+Cilium is the primary CNI and replaces kube-proxy. Pod networking uses VXLAN, which works across routed node addresses without underlay route changes. Cilium's kernel WireGuard mode encrypts inter-node pod traffic before it crosses the public network. Hubble supplies flow visibility.
 
-## Networking
+Control-plane, etcd, and kubelet connections are already authenticated and encrypted by Kubernetes TLS. Host or provider firewalls should restrict those ports to the five node addresses and administrator addresses.
 
-Cilium is the primary CNI and replaces kube-proxy. Service translation therefore happens in Cilium eBPF rather than kube-proxy's iptables or IPVS rules. Kubernetes IPAM allocates node PodCIDRs, and Hubble supplies flow visibility.
+## External Exposure
 
-Kubespray installs and owns the Cilium Helm release. This repository adds only the site-specific resources that Kubespray cannot infer:
-
-- `CiliumLoadBalancerIPPool` defines unused LAN addresses.
-- `CiliumL2AnnouncementPolicy` advertises selected Service addresses.
-- Services opt in through the label `expose: l2`.
+The application is exposed through a fixed NodePort, TCP `30080`, available on every healthy node address:
 
 ```text
-client -> LAN LoadBalancer IP -> elected Cilium announcer
-       -> Cilium service load balancer -> ready backend pod
+client -> node public IP:30080 -> Cilium eBPF service load balancer -> ready pod
 ```
 
-The demo Service uses `externalTrafficPolicy: Cluster`, allowing the announcing node to choose a ready backend on any node. This avoids coupling L2 leader election to local pod placement.
+`externalTrafficPolicy: Cluster` allows any node to forward to a ready pod on either worker. This offers several usable external endpoints without a cloud load balancer. It does not provide one automatically failing-over IP; clients can use another node address after failure, or DNS can publish several A records.
 
-## Policy Model
+## Network Policy
 
-The demo namespace includes a default-deny ingress policy and a narrow allow policy for clients carrying `role=allowed` to contact web pods on TCP/80. Validation creates both allowed and blocked clients and treats unexpected access or denial as a failed run.
+The namespace starts with default-deny ingress. A second policy allows labeled in-cluster clients to reach the web pods on TCP/80 and allows sources outside the Pod CIDR so the public NodePort remains usable. An unlabeled test pod remains inside the Pod CIDR and is denied.
 
 ## Operations and Failure Behavior
 
-Node additions are inventory changes followed by Kubespray's `scale.yml`; node removals use `remove-node.yml` and explicit confirmation. Cluster upgrades use `upgrade-cluster.yml`, which handles control-plane and worker ordering. Re-running `cluster.yml` detects and corrects managed drift.
+Inventory changes plus Kubespray's `scale.yml` add nodes. `remove-node.yml` removes them, and `upgrade-cluster.yml` performs ordered upgrades. Re-running `cluster.yml` reconciles managed drift.
 
-On worker failure, Kubernetes marks the node unavailable and Deployment replicas are rescheduled onto healthy capacity. One failed control-plane node leaves etcd with quorum. kube-vip moves the API address after control-plane leader failure, while Cilium re-elects an announcer when the node holding a Service address disappears.
+After a worker failure, Deployment replicas are recreated where capacity permits. After one control-plane failure, etcd retains quorum and node-local API proxies remove the failed backend. NodePort remains available through the other node addresses.
 
-## Limitations
+## Tradeoffs and Limitations
 
-- L2 announcements require clients and nodes to share a broadcast domain. Routed environments should use Cilium BGP Control Plane instead.
-- The two-worker layout has limited spare capacity; disruption budgets and resource requests must be sized with one-node loss in mind.
-- Kubespray state is configuration, not a replacement for etcd and application-data backups.
+- Public-address clustering increases firewall importance and consumes public network bandwidth.
+- WireGuard protects pod traffic but does not hide node addresses or replace firewall policy.
+- The administrator kubeconfig has no automatic endpoint failover.
+- NodePort is less convenient than a single load-balancer address and exposes a high port.
+- Two workers provide limited spare capacity during failure.
 - No persistent storage, ingress controller, external DNS, identity provider, or secrets manager is included.
-- A single interface name is assumed for kube-vip. Heterogeneous hosts need host-specific inventory variables.
-- The admin kubeconfig and generated Kubespray inventory are sensitive local state and remain ignored by Git.
+- Kubespray state is configuration, not a substitute for etcd and application-data backups.

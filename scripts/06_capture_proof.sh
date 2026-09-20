@@ -18,6 +18,9 @@ out="$ROOT_DIR/proof/proof-${ts}.txt"
   echo "## Cilium status"
   kubectl_local -n kube-system exec ds/cilium -c cilium-agent -- cilium status --verbose || true
   echo
+  echo "## Cilium encryption"
+  kubectl_local -n kube-system exec ds/cilium -c cilium-agent -- cilium encrypt status || true
+  echo
   echo "## Demo pods"
   kubectl_local -n infra-demo get pods -o wide
   echo
