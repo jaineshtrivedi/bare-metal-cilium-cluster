@@ -126,6 +126,13 @@ Kubespray converges managed state instead of replaying one-shot bootstrap comman
 ./scripts/02_deploy_cluster.sh --limit cp2
 ```
 
+If an initial run stops after kubeadm joins the nodes but before Cilium is installed, a normal rerun can wait for nodes that cannot become `Ready` without a CNI. Recover that partial state once, then resume full convergence:
+
+```bash
+make recover-cni
+make cluster
+```
+
 Operational procedures for scaling, upgrades, failure tests, and diagnostics are in [docs/operations.md](docs/operations.md).
 
 ## Demo Policies

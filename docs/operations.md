@@ -18,6 +18,17 @@ Limit a diagnostic rerun when appropriate:
 ./scripts/02_deploy_cluster.sh --limit worker2
 ```
 
+## Recover CNI After an Interrupted Bootstrap
+
+If kubeadm completed but the run stopped before the network-plugin play, all nodes report `NetworkPluginNotReady`. On a rerun, Kubespray may wait for those nodes before reaching Cilium. Install only the network role, then resume normally:
+
+```bash
+make recover-cni
+make cluster
+```
+
+This recovery is idempotent and does not reset kubeadm or etcd.
+
 ## Add a Worker
 
 Add its stable address to `WORKER_NODES`, regenerate inventory, and run Kubespray's scaling playbook:

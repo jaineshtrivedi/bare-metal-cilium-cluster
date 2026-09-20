@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: setup inventory preflight cluster cilium demo deploy validate proof upgrade reset clean-proof
+.PHONY: setup inventory preflight cluster recover-cni cilium demo deploy validate proof upgrade reset clean-proof
 
 setup:
 	./scripts/00_setup_kubespray.sh
@@ -13,6 +13,9 @@ preflight: setup inventory
 
 cluster:
 	./scripts/02_deploy_cluster.sh
+
+recover-cni:
+	cd state/kubespray && ../venv/bin/ansible-playbook -i ../inventory/inventory.ini cluster.yml --become --tags network
 
 cilium:
 	./scripts/03_configure_cilium.sh
