@@ -24,10 +24,23 @@ spec:
         - podSelector:
             matchLabels:
               role: allowed
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - __POD_CIDR__
       ports:
         - protocol: TCP
           port: 80
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-external-web
+  namespace: infra-demo
+spec:
+  endpointSelector:
+    matchLabels:
+      app: web
+  ingress:
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

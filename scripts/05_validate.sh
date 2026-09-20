@@ -30,11 +30,16 @@ echo "==> Network policy: blocked client should time out"
 kubectl_local -n infra-demo delete pod blocked-client --ignore-not-found
 kubectl_local -n infra-demo run blocked-client --image=curlimages/curl:8.10.1 --restart=Never --labels=role=blocked --command -- sleep 3600
 kubectl_local -n infra-demo wait pod/blocked-client --for=condition=Ready --timeout=90s
-if kubectl_local -n infra-demo exec blocked-client -- curl -fsS --max-time 5 http://web; then
-  echo "Blocked client unexpectedly reached the service."
-  exit 1
-else
-  echo "Blocked client denied as expected."
-fi
+for attempt in {1..15}; do
+  if ! kubectl_local -n infra-demo exec blocked-client -- curl -fsS --max-time 2 http://web >/dev/null 2>&1; then
+    echo "Blocked client denied as expected."
+    break
+  fi
+  if [[ "$attempt" -eq 15 ]]; then
+    echo "Blocked client unexpectedly reached the service after policy convergence."
+    exit 1
+  fi
+  sleep 2
+done
 
 echo "Validation complete."

@@ -34,7 +34,7 @@ client -> node public IP:30080 -> Cilium eBPF service load balancer -> ready pod
 
 ## Network Policy
 
-The namespace starts with default-deny ingress. A second policy allows labeled in-cluster clients to reach the web pods on TCP/80 and allows sources outside the Pod CIDR so the public NodePort remains usable. An unlabeled test pod remains inside the Pod CIDR and is denied.
+The namespace starts with default-deny ingress. A Kubernetes NetworkPolicy allows labeled in-cluster clients to reach web pods on TCP/80. A separate CiliumNetworkPolicy allows the `world` identity so public NodePort traffic remains usable without admitting unlabeled cluster pods. The validation uses both an allowed and blocked pod.
 
 ## Operations and Failure Behavior
 

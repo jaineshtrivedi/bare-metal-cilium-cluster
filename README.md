@@ -142,8 +142,8 @@ Operational procedures for scaling, upgrades, failure tests, and diagnostics are
 The `infra-demo` namespace contains a three-replica nginx Deployment and a fixed `NodePort` Service. Its policies are:
 
 - `default-deny-ingress` denies ingress by default.
-- `allow-web-from-approved-clients` allows labeled in-cluster clients on TCP/80.
-- The same allow policy permits traffic originating outside the Pod CIDR, keeping the public NodePort reachable while unlabeled in-cluster clients remain denied.
+- `allow-web-from-approved-clients` allows only labeled in-cluster clients on TCP/80.
+- `allow-external-web` is a Cilium policy that permits the `world` identity, keeping the public NodePort reachable without admitting unlabeled cluster pods.
 
 ## Assumptions and Limits
 

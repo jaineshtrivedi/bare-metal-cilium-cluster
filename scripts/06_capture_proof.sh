@@ -29,6 +29,7 @@ out="$ROOT_DIR/proof/proof-${ts}.txt"
   echo
   echo "## Network policies"
   kubectl_local -n infra-demo get networkpolicy -o yaml
+  kubectl_local -n infra-demo get ciliumnetworkpolicy -o yaml
   echo
   echo "## Validation run"
   "$ROOT_DIR/scripts/05_validate.sh"
