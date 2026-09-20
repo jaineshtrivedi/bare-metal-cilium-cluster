@@ -29,6 +29,8 @@ make cluster
 
 This recovery is idempotent and does not reset kubeadm or etcd.
 
+If a Cilium `mount-cgroup` or `install-cni-binaries` init container reports permission denied under `/opt/cni/bin`, regenerate inventory before recovery. The inventory sets Kubespray's required `kube_owner: root`, and the tagged recovery corrects ownership on every node.
+
 ## Add a Worker
 
 Add its stable address to `WORKER_NODES`, regenerate inventory, and run Kubespray's scaling playbook:

@@ -133,6 +133,8 @@ make recover-cni
 make cluster
 ```
 
+The generated inventory sets `kube_owner: root`, as required by Kubespray's unprivileged Cilium deployment. This keeps `/opt/cni/bin` writable by Cilium's hardened init containers.
+
 Operational procedures for scaling, upgrades, failure tests, and diagnostics are in [docs/operations.md](docs/operations.md).
 
 ## Demo Policies

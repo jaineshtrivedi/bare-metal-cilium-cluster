@@ -67,6 +67,7 @@ cat >"$KUBESPRAY_INVENTORY/group_vars/k8s_cluster/zz-cluster.yml" <<EOF
 ---
 kube_version: "${KUBERNETES_VERSION}"
 kube_network_plugin: cilium
+kube_owner: root
 kube_proxy_remove: true
 kube_proxy_mode: ipvs
 kube_pods_subnet: "${POD_CIDR}"
