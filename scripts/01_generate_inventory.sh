@@ -54,7 +54,6 @@ kube_node
 
 [all:vars]
 ansible_user=${SSH_USER}
-ansible_become=true
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='${ANSIBLE_SSH_COMMON_ARGS}'
 EOF
